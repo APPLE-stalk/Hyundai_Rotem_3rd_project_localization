@@ -79,7 +79,7 @@ def create_dash_app():
         dcc.Graph(id='voxel-graph'),
 
         html.Div([
-            html.Label("자동 최신화 (초당 1회):"),
+            html.Label("자동 최신화:"),
             dcc.Checklist(
                 options=[{'label': '활성화', 'value': 'on'}],
                 value=['on'],
@@ -91,7 +91,7 @@ def create_dash_app():
         
         html.Div(id='pose-info', style={'margin-top': '20px', 'fontSize': 18}),
 
-        dcc.Interval(id='interval', interval=200, n_intervals=0, disabled=False)
+        dcc.Interval(id='interval', interval=500, n_intervals=0, disabled=False)
     ])
 
     @app.callback(
