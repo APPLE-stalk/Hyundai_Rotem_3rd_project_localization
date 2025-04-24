@@ -7,6 +7,7 @@ import open3d as o3d
 
 
 from utils.config import SHARED
+shared = SHARED
 
 def load_voxel_data(path='C:/pycode/3rd_Project/mapping/3d_LiDAR_fake/open3d/downsampling_outliner_point_cloud_0.5.ply', voxel_size=0.5):
     if not os.path.exists(path):
@@ -69,6 +70,8 @@ def create_dash_app():
             ),
             html.Button('수동 새로고침', id='manual-refresh', n_clicks=0),
         ], style={'margin-top': '10px'}),
+        
+        html.Div(id='pose-info', style={'margin-top': '20px', 'fontSize': 18}),
 
         dcc.Interval(id='interval', interval=1000, n_intervals=0, disabled=False)
     ])
@@ -89,4 +92,13 @@ def create_dash_app():
     def update_graph(n_intervals, n_clicks, toggle_value):
         voxel_centers = load_voxel_data()
         return create_3d_scatter(voxel_centers)
+    
+    @app.callback(
+        Output('pose-info', 'children'),
+        Input('interval', 'n_intervals')
+    )
+    def update_pose_info(n):
+        return "전차 위치: x = {0:.2f}, z = {1:.2f}, yaw = {2:.2f}°".format(shared['cur_est_playerPos']['x'], shared['cur_est_playerPos']['z'], shared['cur_est_playerPos']['yaw_deg'])
+
+
     return app
