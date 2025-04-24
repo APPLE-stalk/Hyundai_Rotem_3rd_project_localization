@@ -44,6 +44,24 @@ def create_3d_scatter(voxel_centers):
                 colorbar=dict(title='Height'),
                 opacity=1 # 점 투명도 1: 불투명, 0: 투명
             )
+        ),
+        go.Scatter3d(
+            x=[shared['cur_playerPos']['x']],
+            y=[shared['cur_playerPos']['z']],  # z축 위치는 z, y 전환 여부에 따라 수정 가능
+            z=[9.5],  
+            mode='markers',
+            marker=dict(size=5, color='red'),
+            opacity=1
+            
+        ),
+        go.Scatter3d(
+            x=[shared['cur_est_playerPos']['x']],
+            y=[shared['cur_est_playerPos']['z']],  # z축 위치는 z, y 전환 여부에 따라 수정 가능
+            z=[9.5],  
+            mode='markers',
+            marker=dict(size=5, color='blue'),
+            opacity=1
+            
         )
     ])
     fig.update_layout(scene=dict(
@@ -73,7 +91,7 @@ def create_dash_app():
         
         html.Div(id='pose-info', style={'margin-top': '20px', 'fontSize': 18}),
 
-        dcc.Interval(id='interval', interval=1000, n_intervals=0, disabled=False)
+        dcc.Interval(id='interval', interval=200, n_intervals=0, disabled=False)
     ])
 
     @app.callback(
