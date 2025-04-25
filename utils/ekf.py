@@ -15,42 +15,57 @@ class EKF_kd:
         
         # 상태 공분산
         self.P = np.eye(state_dim)
+        # 초기에 eye로 설정, 추후 업데이트 하며 알아서 조정됨
+        # [[1. 0. 0.] 
+        # [0. 1. 0.] 
+        # [0. 0. 1.]]
         
-        # 프로세스 노이즈(x, y, yaw)
-        self.Q = np.diag([0.2, 0.2, np.deg2rad(2.0)])**2
+        # 프로세스 노이즈(x, y, yaw), 모델링되지 않은 외란이나 제어 입력의 불확실성등 시스템의 동작에 포함된 "내부 노이즈"을 의미함
+        # 시간이 지나면서 "state"가 얼마나 "더 불확실해지는지"를 반영
+        # 따라서 이 값이 클수록 EKF는 **센서의 측정치(Observation)**에 더 의존하게 됩니다.
+        # 반복되며 학습되지는 않는 고정된 값
+        self.Q = np.diag([5.0, 5.0, np.deg2rad(10.0)])**2
+        # [[25.          0.          0.        ]
+        # [ 0.         25.          0.        ]
+        # [ 0.          0.          0.03046174]]
+        
         
         # 관측 노이즈 (GPS_x, GPS_y, IMU yaw각)
-        self.R = np.diag([1.0, 1.0, 10])**2
+        self.R = np.diag([5.0, 5.0, np.deg2rad(10.0)])**2
         
-    def predict(self, x, z, yaw, v):
+    def predict(self, x, z, yaw_rad, v):
         '''
         v: 전차 속도(입력으로 들어옴, km/h)
         '''
         # x, y, yaw = self.x.flatten()
         dt = self.dt
         
+        v = v/3.6
+        
         # motion model
         fx = np.array([
-            [x + v * np.cos(yaw) * dt],
-            [z + v * np.sin(yaw) * dt],
-            [yaw]
+            [x + v * np.cos(yaw_rad) * dt],
+            [z + v * np.sin(yaw_rad) * dt],
+            [yaw_rad]
         ])
         
         # Jacobian of motion model
+        # 상태 전이 자코비안
         F = np.array([
-            [1.0, 0.0, -v * np.sin(yaw) * dt],
-            [0.0, 1.0,  v * np.cos(yaw) * dt],
+            [1.0, 0.0, -v * np.sin(yaw_rad) * dt],
+            [0.0, 1.0,  v * np.cos(yaw_rad) * dt],
             [0.0, 0.0, 1.0]
         ])
         
-        self.x = fx
-        self.P = F @ self.P @ F.T + self.Q
+        self.x = fx # motion model 기반 상태 예측
+        self.P = F @ self.P @ F.T + self.Q # 오차 공분산 예측
 
 
     def update(self, z):
         '''
         z: 관측값 (GPS로 측정한 x, z)값
         '''
+        # 관측모델 자코비안
         H = np.array([
         [1, 0, 0],
         [0, 1, 0],

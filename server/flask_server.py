@@ -10,8 +10,24 @@ shared = SHARED
 #Localization
 ekf = EKF_kd(dt = 0.1)
 move_command = []
-def normalize_angle(angle_rad):
-    return (angle_rad + np.pi) % (2 * np.pi) - np.pi
+
+def cw_deg_to_rad(deg: float | np.ndarray) -> float | np.ndarray:
+    """
+    시계방향 deg (0°=전방) → 수학 좌표계 rad (CCW+, 범위 [-π, π))
+    """
+    rad = np.deg2rad(90.0 - deg)
+    return (rad + np.pi) % (2 * np.pi) - np.pi   # 항상 [-π, π)
+
+def rad_to_cw_deg(rad: float | np.ndarray) -> float | np.ndarray:
+    """
+    수학 좌표계 rad → 시계방향 deg (0°=전방, 범위 [0, 360))
+    """
+    # ① 범위 정규화
+    rad = (rad + np.pi) % (2 * np.pi) - np.pi     # [-π, π)
+
+    # ② 각도 변환
+    deg = 90.0 - np.rad2deg(rad)                  # 0° 기준 회전
+    return deg % 360.0                            # [0, 360)
 
 @app.route('/info', methods=['POST'])
 def info():
@@ -19,13 +35,13 @@ def info():
     
     # print("📨 /info data received:", data['time'])
     
-    # 이전 정보 업데이트
+    # 이전 정보 저장
     shared['pre_playerPos']['x'] = shared['cur_playerPos']['x']
     shared['pre_playerPos']['z'] = shared['cur_playerPos']['z']
     shared['pre_tank_yaw_deg'] = shared['cur_tank_yaw_deg']
     shared['pre_tank_vel_kh'] = shared['cur_tank_vel_kh']
     
-    # 이전 추정값 업데이트
+    # 이전 추정값 저장
     shared['pre_est_playerPos']['x'] = shared['cur_est_playerPos']['x']
     shared['pre_est_playerPos']['z'] = shared['cur_est_playerPos']['z']
     shared['pre_est_playerPos']['yaw_deg'] = shared['cur_est_playerPos']['yaw_deg']
@@ -35,9 +51,13 @@ def info():
     shared['cur_playerPos']['x'] = data['playerPos']['x']
     shared['cur_playerPos']['z'] = data['playerPos']['z']
     
-    shared['tank_cur_yaw_deg'] = round(data['playerBodyX'], 2)
+    shared['cur_tank_yaw_deg'] = data['playerBodyX']
+    # shared['cur_tank_yaw_rad'] = cw_deg_to_rad(data['playerBodyX'])
     
-    
+    # 노이즈 넣은 최신 정보
+    shared['cur_playerPos_noise']['x'] = shared['cur_playerPos']['x'] + np.random.normal(0, 5) # 현실성 주기 위해 랜덤 노이즈 표준편차 *m급으로 넣어줌
+    shared['cur_playerPos_noise']['z'] = shared['cur_playerPos']['z'] + np.random.normal(0, 5)
+    shared['cur_tank_yaw_deg_noise'] = (data['playerBodyX'] + np.random.normal(0, 10))%360  # 현실성 주기 위해 랜덤 노이즈 10도 급으로 넣어줌
     
     # ====================================================================================  연산/알고리즘/추정 시작
     # 위치 delta 구하기, [현재 위치 - 이전 위치]
@@ -53,13 +73,8 @@ def info():
     # 이동 벡터
     v_move = np.array([del_playerPos_x, del_playerPos_z]) 
     
-    
-    # 월드 좌표계 기준의 전차의 yaw(deg -> 라디안)
-    yaw_deg = data['playerBodyX']
-    yaw_rad = np.deg2rad(90 - yaw_deg)
-    
     # 월드 좌표계 기준의 전차의 yaw(deg -> 라디안)의 벡터화
-    v_forward = np.array([np.cos(yaw_rad), np.sin(yaw_rad)])  
+    v_forward = np.array([np.cos(np.deg2rad(90 - shared['cur_tank_yaw_deg'])), np.sin(np.deg2rad(90 - shared['cur_tank_yaw_deg']))])  
     
     # 방향 판단
     moving_direction = np.sign(np.dot(v_forward, v_move)) # 두 벡터 내적 이용, +1: 전진, -1: 후진
@@ -74,18 +89,18 @@ def info():
     
     # EKF Localization
     # prediction <- [이전x 예측값, 이전z 예측값, 이전 yaw 예측값, 이전 속도 입력값]
-    ekf.predict(shared['pre_est_playerPos']['x'], shared['pre_est_playerPos']['z'], normalize_angle(np.deg2rad(90 - shared['pre_est_playerPos']['yaw_deg'])), shared['pre_tank_vel_kh']) 
-    # update <- GPS 센서 값 [현재x, 현재z]
-    ud_x = data['playerPos']['x'] + np.random.normal(0, 3) # 현실성 주기 위해 랜덤 노이즈 3m급으로 넣어줌
-    ud_z = data['playerPos']['z'] + np.random.normal(0, 3)
-    ud_yaw = normalize_angle((yaw_rad + np.pi) % (2 * np.pi) - np.pi) + np.deg2rad(np.random.normal(0, 10))  # 현실성 주기 위해 랜덤 노이즈 10도 급으로 넣어줌
-    ud =  np.array([ud_x,ud_z, ud_yaw])
+    ekf.predict(shared['pre_est_playerPos']['x'], shared['pre_est_playerPos']['z'], cw_deg_to_rad(shared['pre_est_playerPos']['yaw_deg']), shared['pre_tank_vel_kh']) 
+    # update <- GPS 센서 값 [현재x, 현재z]d
+    # print('raddddddddd: ', cw_deg_to_rad(shared['cur_tank_yaw_deg_noise']))
+    
+    ud =  np.array([shared['cur_playerPos_noise']['x'],shared['cur_playerPos_noise']['z'], cw_deg_to_rad(shared['cur_tank_yaw_deg_noise'])])
     
     ekf.update(ud)
     udt_x, udt_z, udt_yaw_rad = ekf.get_state()
     shared['cur_est_playerPos']['x'] = udt_x
     shared['cur_est_playerPos']['z'] = udt_z
-    shared['cur_est_playerPos']['yaw_deg'] = 90 - np.rad2deg(udt_yaw_rad)
+    shared['cur_est_playerPos']['yaw_deg'] = rad_to_cw_deg(udt_yaw_rad)
+    print('ssssssssss: ', shared['cur_est_playerPos']['yaw_deg'])
     
     # shared['est_playerPos']['x'] = 11
     # shared['est_playerPos']['z'] = 22

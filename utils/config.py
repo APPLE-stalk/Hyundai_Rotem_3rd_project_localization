@@ -9,6 +9,11 @@ SHARED = {
         # 'y':0,
         'z':0
     },
+    'cur_playerPos_noise': {
+        'x':0,
+        # 'y':0,
+        'z':0
+    },
     'del_playerPos':{
         'x': [],
         'z': []
@@ -30,7 +35,10 @@ SHARED = {
     # 차체 yaw 각도
     "pre_tank_yaw_deg": 0.0,
     "cur_tank_yaw_deg": 0.0,
+    "cur_tank_yaw_deg_noise": 0.0,
     "tar_tank_yaw_deg": 0.0,
+    
+    # "cur_tank_yaw_rad": 0.0,
     
     
     

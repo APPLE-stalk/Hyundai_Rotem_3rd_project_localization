@@ -52,16 +52,22 @@ def create_3d_scatter(voxel_centers):
             mode='markers',
             marker=dict(size=5, color='red'),
             opacity=1
-            
         ),
-        go.Scatter3d(
+        go.Scatter3d( # 칼만필터로 추정한 정보
             x=[shared['cur_est_playerPos']['x']],
-            y=[shared['cur_est_playerPos']['z']],  # z축 위치는 z, y 전환 여부에 따라 수정 가능
+            y=[shared['cur_est_playerPos']['z']],  
             z=[9.5],  
             mode='markers',
             marker=dict(size=5, color='blue'),
             opacity=1
-            
+        ),
+        go.Scatter3d( # 칼만필터에 들어가는 센서값 + 노이즈 정보
+            x=[shared['cur_playerPos_noise']['x']], 
+            y=[shared['cur_playerPos_noise']['z']],  
+            z=[9.5],  
+            mode='markers',
+            marker=dict(size=5, color='green'),
+            opacity=1
         )
     ])
     fig.update_layout(scene=dict(
@@ -116,7 +122,7 @@ def create_dash_app():
         Input('interval', 'n_intervals')
     )
     def update_pose_info(n):
-        return "전차 위치: x = {0:.2f}, z = {1:.2f}, yaw = {2:.2f}°".format(shared['cur_est_playerPos']['x'], shared['cur_est_playerPos']['z'], shared['cur_est_playerPos']['yaw_deg'])
+        return "전차 추정 위치: x = {0:.2f}, z = {1:.2f}, yaw = {2:.2f}°".format(shared['cur_est_playerPos']['x'], shared['cur_est_playerPos']['z'], shared['cur_est_playerPos']['yaw_deg'])
 
 
     return app
