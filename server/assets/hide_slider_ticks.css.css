@@ -1,0 +1,4 @@
+/* 슬라이더 아래 눈금 막대 제거 */
+.rc-slider-step {
+    display: none !important;
+}

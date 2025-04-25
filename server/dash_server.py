@@ -76,14 +76,33 @@ def create_3d_scatter(voxel_centers):
     )
     return fig
 
+def create_yaw_figure() -> go.Figure:
+    """Yaw 로그(진값·노이즈·EKF)를 선 그래프로 출력."""
+    true_log  = shared.get("log_cur_tank_yaw_deg", [])[-100:]
+    noise_log = shared.get("log_cur_tank_yaw_deg_noise", [])[-100:]
+    est_log   = shared.get("log_cur_est_playerPos_yaw_deg", [])[-100:]
+    t_len = max(len(true_log), len(noise_log), len(est_log))
+    t = list(range(t_len))
+    
+    fig = go.Figure()
+    if true_log:
+        fig.add_scatter(x=t[:len(true_log)], y=true_log, mode="lines", name="True", line=dict(width=2))
+    if noise_log:
+        fig.add_scatter(x=t[:len(noise_log)], y=noise_log, mode="lines", name="Measurement", line=dict(width=1, dash="dot"))
+    if est_log:
+        fig.add_scatter(x=t[:len(est_log)], y=est_log, mode="lines", name="EKF", line=dict(width=2))
+    fig.update_layout(xaxis_title="Step", yaxis_title="Yaw [deg]", margin=dict(l=40, r=20, t=20, b=40))
+    return fig
+
 
 def create_dash_app():
-    app = Dash(__name__)
+    app = Dash(__name__,assets_folder="assets",        # 기본값 "assets"
+            assets_url_path="/hide_slider_ticks.css" )     # (선택) URL 경로)
     
     app.layout = html.Div([
         html.H4("Voxel 3D Map (Point Cloud → Voxel)"),
         dcc.Graph(id='voxel-graph'),
-
+        
         html.Div([
             html.Label("자동 최신화:"),
             dcc.Checklist(
@@ -96,8 +115,25 @@ def create_dash_app():
         ], style={'margin-top': '10px'}),
         
         html.Div(id='pose-info', style={'margin-top': '20px', 'fontSize': 18}),
-
-        dcc.Interval(id='interval', interval=500, n_intervals=0, disabled=False)
+        
+        dcc.Graph(id="yaw-graph"),
+        
+        # ── Q/R 슬라이더 영역 ──
+        html.Div([
+            html.Div([
+                html.Label("프로세스 공분산 Q_yaw"),
+                dcc.Slider(id="slider-q-yaw", min=0.01, max=10.0, step=0.01, value=shared['ekf_var']['Q_yaw'],
+                        tooltip={"always_visible": True}),
+            ], style={"margin-bottom": "15px"}),
+            html.Div([
+                html.Label("측정 공분산 R_yaw"),
+                dcc.Slider(id="slider-r-yaw", min=0.01, max=10.0, step=0.01, value=shared['ekf_var']['R_yaw'],
+                        tooltip={"always_visible": True}),
+            ]),
+            html.Div(id="slider-values", style={"margin-top": "10px", "fontSize": 16, "fontWeight": "bold"}),
+        ], style={"padding": "0 20px 20px 20px"}),
+        
+        dcc.Interval(id='interval', interval=400, n_intervals=0, disabled=False)
     ])
 
     @app.callback(
@@ -109,7 +145,8 @@ def create_dash_app():
 
     @app.callback(
         Output('voxel-graph', 'figure'),
-        [Input('interval', 'n_intervals'), Input('manual-refresh', 'n_clicks')],
+        [Input('interval', 'n_intervals'),
+        Input('manual-refresh', 'n_clicks')],
         [State('autorefresh-toggle', 'value')],
         prevent_initial_call=True
     )
@@ -123,6 +160,18 @@ def create_dash_app():
     )
     def update_pose_info(n):
         return "전차 추정 위치: x = {0:.2f}, z = {1:.2f}, yaw = {2:.2f}°".format(shared['cur_est_playerPos']['x'], shared['cur_est_playerPos']['z'], shared['cur_est_playerPos']['yaw_deg'])
+    
+    # Yaw 그래프 업데이트
+    @app.callback(Output("yaw-graph", "figure"), Input("interval", "n_intervals"))
+    def update_yaw(_):
+        return create_yaw_figure()
+    
+    # 슬라이더: 공유변수 업데이트 + 값 표시 (그래프는 건드리지 않음)
+    @app.callback(Output('slider-values', 'children'), [Input('slider-q-yaw', 'value'), Input('slider-r-yaw', 'value')])
+    def update_qr_display(q_val, r_val):
+        shared['ekf_var']['Q_yaw'] = float(q_val)
+        shared['ekf_var']['R_yaw'] = float(r_val)
+        return f'Q_yaw = {q_val:.2f}     R_yaw = {r_val:.2f}'
 
 
     return app

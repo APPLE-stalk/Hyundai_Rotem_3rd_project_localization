@@ -11,23 +11,37 @@ shared = SHARED
 ekf = EKF_kd(dt = 0.1)
 move_command = []
 
+# def cw_deg_to_rad(deg: float | np.ndarray) -> float | np.ndarray:
+#     """
+#     시계방향 deg (0°=전방) → 수학 좌표계 rad (CCW+, 범위 [-π, π))
+#     """
+#     rad = np.deg2rad(90.0 - deg)
+#     return (rad + np.pi) % (2 * np.pi) - np.pi   # 항상 [-π, π)
+
+# def rad_to_cw_deg(rad: float | np.ndarray) -> float | np.ndarray:
+#     """
+#     수학 좌표계 rad → 시계방향 deg (0°=전방, 범위 [0, 360))
+#     """
+#     # ① 범위 정규화
+#     rad = (rad + np.pi) % (2 * np.pi) - np.pi     # [-π, π)
+
+#     # ② 각도 변환
+#     deg = 90.0 - np.rad2deg(rad)                  # 0° 기준 회전
+#     return deg % 360.0                            # [0, 360)
 def cw_deg_to_rad(deg: float | np.ndarray) -> float | np.ndarray:
     """
-    시계방향 deg (0°=전방) → 수학 좌표계 rad (CCW+, 범위 [-π, π))
+    시계방향 deg (0도 = 전방) → 수학적 rad (0rad = 오른쪽)
     """
-    rad = np.deg2rad(90.0 - deg)
-    return (rad + np.pi) % (2 * np.pi) - np.pi   # 항상 [-π, π)
+    rad = np.deg2rad(90.0 - deg)  # 90도 - deg로 반시계방향 전환
+    return (rad + np.pi) % (2 * np.pi) - np.pi  # [-π, π] 범위로 정규화
 
 def rad_to_cw_deg(rad: float | np.ndarray) -> float | np.ndarray:
     """
-    수학 좌표계 rad → 시계방향 deg (0°=전방, 범위 [0, 360))
+    수학적 rad (0rad = 오른쪽) → 시계방향 deg (0도 = 전방)
     """
-    # ① 범위 정규화
-    rad = (rad + np.pi) % (2 * np.pi) - np.pi     # [-π, π)
-
-    # ② 각도 변환
-    deg = 90.0 - np.rad2deg(rad)                  # 0° 기준 회전
-    return deg % 360.0                            # [0, 360)
+    rad = (rad + np.pi) % (2 * np.pi) - np.pi  # 정규화
+    deg = (90.0 - np.rad2deg(rad)) % 360  # 시계방향으로 전환
+    return deg
 
 @app.route('/info', methods=['POST'])
 def info():
@@ -39,11 +53,13 @@ def info():
     shared['pre_playerPos']['x'] = shared['cur_playerPos']['x']
     shared['pre_playerPos']['z'] = shared['cur_playerPos']['z']
     shared['pre_tank_yaw_deg'] = shared['cur_tank_yaw_deg']
+    shared['pre_acc_tank_yaw_deg'] = shared['cur_acc_tank_yaw_deg'] # -pi, pi 예외처리용
     shared['pre_tank_vel_kh'] = shared['cur_tank_vel_kh']
     
     # 이전 추정값 저장
     shared['pre_est_playerPos']['x'] = shared['cur_est_playerPos']['x']
     shared['pre_est_playerPos']['z'] = shared['cur_est_playerPos']['z']
+    # shared['pre_est_playerPos']['pre_yaw_deg'] = shared['pre_est_playerPos']['yaw_deg'] # -pi, pi 예외처리용
     shared['pre_est_playerPos']['yaw_deg'] = shared['cur_est_playerPos']['yaw_deg']
     
     
@@ -51,14 +67,21 @@ def info():
     shared['cur_playerPos']['x'] = data['playerPos']['x']
     shared['cur_playerPos']['z'] = data['playerPos']['z']
     
-    shared['cur_tank_yaw_deg'] = data['playerBodyX']
+    
+    if((data['playerBodyX'] - shared['pre_acc_tank_yaw_deg'])<-270): # +방향 오버플로우 (179 -> 180 -> -179인 상황)
+        shared['deg_acc_cnt'] +=1
+    elif((data['playerBodyX'] - shared['pre_acc_tank_yaw_deg'])>270): # -방향 오버플로우 (-179 -> -180 -> +179인 상황)
+        shared['deg_acc_cnt'] -=1
+        
+    # shared['cur_tank_yaw_deg'] = data['playerBodyX'] + 360*shared['deg_acc_cnt']
+    shared["log_cur_tank_yaw_deg"].append(data['playerBodyX']) # dash 시각화 용
     # shared['cur_tank_yaw_rad'] = cw_deg_to_rad(data['playerBodyX'])
     
     # 노이즈 넣은 최신 정보
     shared['cur_playerPos_noise']['x'] = shared['cur_playerPos']['x'] + np.random.normal(0, 5) # 현실성 주기 위해 랜덤 노이즈 표준편차 *m급으로 넣어줌
     shared['cur_playerPos_noise']['z'] = shared['cur_playerPos']['z'] + np.random.normal(0, 5)
-    shared['cur_tank_yaw_deg_noise'] = (data['playerBodyX'] + np.random.normal(0, 10))%360  # 현실성 주기 위해 랜덤 노이즈 10도 급으로 넣어줌
-    
+    shared['cur_tank_yaw_deg_noise'] = (data['playerBodyX'] + np.random.normal(0, 5))%360  # 현실성 주기 위해 랜덤 노이즈 10도 급으로 넣어줌
+    shared["log_cur_tank_yaw_deg_noise"].append(shared['cur_tank_yaw_deg_noise']) # dash 시각화 용
     # ====================================================================================  연산/알고리즘/추정 시작
     # 위치 delta 구하기, [현재 위치 - 이전 위치]
     del_playerPos_x = shared['cur_playerPos']['x'] - shared['pre_playerPos']['x']
@@ -89,9 +112,15 @@ def info():
     
     # EKF Localization
     # prediction <- [이전x 예측값, 이전z 예측값, 이전 yaw 예측값, 이전 속도 입력값]
+    # if(shared['pre_est_playerPos']['pre_yaw_deg'] - shared['pre_est_playerPos']['yaw_deg'] < 180):
+    #     # pass # 시계방향 8시 -> 10시
+    #     ekf.predict(shared['pre_est_playerPos']['x'], shared['pre_est_playerPos']['z'], cw_deg_to_rad(shared['pre_est_playerPos']['yaw_deg']-180), shared['pre_tank_vel_kh']) 
+    # elif(shared['pre_est_playerPos']['pre_yaw_deg'] - shared['pre_est_playerPos']['yaw_deg'] > 180):
+    #     # pass # 반시계 10 <- 8시
+    #     ekf.predict(shared['pre_est_playerPos']['x'], shared['pre_est_playerPos']['z'], cw_deg_to_rad(shared['pre_est_playerPos']['yaw_deg']+180), shared['pre_tank_vel_kh']) 
     ekf.predict(shared['pre_est_playerPos']['x'], shared['pre_est_playerPos']['z'], cw_deg_to_rad(shared['pre_est_playerPos']['yaw_deg']), shared['pre_tank_vel_kh']) 
     # update <- GPS 센서 값 [현재x, 현재z]d
-    # print('raddddddddd: ', cw_deg_to_rad(shared['cur_tank_yaw_deg_noise']))
+    print('ppppppppppppppp: ', cw_deg_to_rad(shared['pre_est_playerPos']['yaw_deg']))
     
     ud =  np.array([shared['cur_playerPos_noise']['x'],shared['cur_playerPos_noise']['z'], cw_deg_to_rad(shared['cur_tank_yaw_deg_noise'])])
     
@@ -100,12 +129,15 @@ def info():
     shared['cur_est_playerPos']['x'] = udt_x
     shared['cur_est_playerPos']['z'] = udt_z
     shared['cur_est_playerPos']['yaw_deg'] = rad_to_cw_deg(udt_yaw_rad)
-    print('ssssssssss: ', shared['cur_est_playerPos']['yaw_deg'])
+    shared["log_cur_est_playerPos_yaw_deg"].append(rad_to_cw_deg(udt_yaw_rad)) # dash 시각화 용
+    # print('ssssssssss: ', shared['cur_est_playerPos']['yaw_deg'])
     
     # shared['est_playerPos']['x'] = 11
     # shared['est_playerPos']['z'] = 22
     # shared['est_playerPos']['yaw_deg'] = 33
-    print('hi')
+    # print('hi')
+    
+    
     
     
     

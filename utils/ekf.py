@@ -1,8 +1,8 @@
 # EKF + IMU(roll, pitch, yaw) + GNSS(x, y, z) 기반 Localization
 
 # 2D 기준
-
-
+from utils.config import SHARED
+shared = SHARED
 
 import numpy as np
 
@@ -24,16 +24,18 @@ class EKF_kd:
         # 시간이 지나면서 "state"가 얼마나 "더 불확실해지는지"를 반영
         # 따라서 이 값이 클수록 EKF는 **센서의 측정치(Observation)**에 더 의존하게 됩니다.
         # 반복되며 학습되지는 않는 고정된 값
-        self.Q = np.diag([5.0, 5.0, np.deg2rad(10.0)])**2
+        self.Q = np.diag([5.0, 5.0, shared['ekf_var']['Q_yaw']])**2
         # [[25.          0.          0.        ]
         # [ 0.         25.          0.        ]
         # [ 0.          0.          0.03046174]]
         
         
         # 관측 노이즈 (GPS_x, GPS_y, IMU yaw각)
-        self.R = np.diag([5.0, 5.0, np.deg2rad(10.0)])**2
+        self.R = np.diag([5.0, 5.0, shared['ekf_var']['R_yaw']])**2
         
     def predict(self, x, z, yaw_rad, v):
+        self.Q = np.diag([5.0, 5.0, shared['ekf_var']['Q_yaw']])**2
+        self.R = np.diag([5.0, 5.0, shared['ekf_var']['R_yaw']])**2
         '''
         v: 전차 속도(입력으로 들어옴, km/h)
         '''
@@ -58,6 +60,7 @@ class EKF_kd:
         ])
         
         self.x = fx # motion model 기반 상태 예측
+        # self.x[2] = (self.x[2] + np.pi) % (2 * np.pi) - np.pi  # ← yaw 정규화 # 180 부근 정규화
         self.P = F @ self.P @ F.T + self.Q # 오차 공분산 예측
 
 
@@ -78,6 +81,7 @@ class EKF_kd:
         K = self.P @ H.T @ np.linalg.inv(S)
 
         self.x = self.x + K @ y
+        # self.x[2] = (self.x[2] + np.pi) % (2 * np.pi) - np.pi  # ← update 후에도 적용 180도 부근 정규화
         self.P = (np.eye(3) - K @ H) @ self.P
 
     def get_state(self):
